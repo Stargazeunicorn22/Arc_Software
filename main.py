@@ -1,46 +1,71 @@
 import cv2
-from PIL import Image
+import numpy as np
 from util import get_limits
 
-# Define yellow color in BGR format (Blue: 0, Green: 255, Red: 255)
-yellow = (0, 255, 255)
+colors = {
+    "Red": (0, 0, 255),
+    "Green": (0, 255, 0),
+    "Blue": (255, 0, 0),
+    "Yellow": (0, 255, 255),
+}
 
-# OPTIMIZATION: Get lower and upper HSV limits for yellow ONCE outside the loop
-lowerLimit, upperLimit = get_limits(color=yellow)
+color_limits = {name: get_limits(bgr) for name, bgr in colors.items()}
+kernel = np.ones((5, 5), np.uint8)
 
-# Initialize webcam stream (try index 0, 1, or 2 depending on your camera setup)
 cap = cv2.VideoCapture(0)
+
+if not cap.isOpened():
+    print("ERROR: Could not open webcam. Try changing VideoCapture(0) to 1.")
 
 while True:
     ret, frame = cap.read()
-    
-    # FIX: Safety check to ensure the frame was successfully captured
     if not ret:
         print("Failed to grab frame. Retrying...")
         continue
 
-    # Convert frame from BGR to HSV color space
-    hsvImage = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    blurred = cv2.GaussianBlur(frame, (5, 5), 0)
+    hsvImage = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
+    black_screen = np.zeros_like(frame)
 
-    # Generate binary mask for yellow pixels
-    mask = cv2.inRange(hsvImage, lowerLimit, upperLimit)
+    for name, limits in color_limits.items():
+        mask = None
+        for lower, upper in limits:
+            current_mask = cv2.inRange(hsvImage, lower, upper)
+            mask = (
+                current_mask
+                if mask is None
+                else cv2.bitwise_or(mask, current_mask)
+            )
 
-    # Convert mask to Pillow image format and extract bounding box coordinates
-    mask_ = Image.fromarray(mask)
-    bbox = mask_.getbbox()
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
 
-    # Draw green bounding box if a yellow object is detected
-    if bbox is not None:
-        x1, y1, x2, y2 = bbox
-        frame = cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 5)
+        bgr_color = colors[name]
+        black_screen[mask > 0] = bgr_color
 
-    # Show live frame
-    cv2.imshow('frame', frame)
+        contours, _ = cv2.findContours(
+            mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
 
-    # Press 'q' to stop script and exit
-    if cv2.waitKey(1) & 0xFF == ord('q'):
+        for cnt in contours:
+            if cv2.contourArea(cnt) > 800:
+                cv2.drawContours(frame, (cnt,), -1, bgr_color, 3)
+                x, y, w, h = cv2.boundingRect(cnt)
+                cv2.putText(
+                    frame,
+                    name,
+                    (x, max(20, y - 10)),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    bgr_color,
+                    2,
+                )
+
+    cv2.imshow("Live Detection", frame)
+    cv2.imshow("Black Screen Color View", black_screen)
+
+    if cv2.waitKey(1) & 0xFF == ord("q"):
         break
 
-# Release webcam hardware and close windows
 cap.release()
 cv2.destroyAllWindows()

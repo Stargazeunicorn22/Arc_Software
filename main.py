@@ -13,9 +13,11 @@ color_limits = {name: get_limits(bgr) for name, bgr in colors.items()}
 kernel = np.ones((5, 5), np.uint8)
 
 cap = cv2.VideoCapture(0)
-
 if not cap.isOpened():
     print("ERROR: Could not open webcam. Try changing VideoCapture(0) to 1.")
+
+# Tracks what was detected in the previous frame to prevent console spam
+last_detected_colors = set()
 
 while True:
     ret, frame = cap.read()
@@ -26,6 +28,8 @@ while True:
     blurred = cv2.GaussianBlur(frame, (5, 5), 0)
     hsvImage = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
     black_screen = np.zeros_like(frame)
+
+    detected_colors = set()
 
     for name, limits in color_limits.items():
         mask = None
@@ -49,7 +53,8 @@ while True:
 
         for cnt in contours:
             if cv2.contourArea(cnt) > 800:
-                cv2.drawContours(frame, (cnt,), -1, bgr_color, 3)
+                detected_colors.add(name)
+                cv2.drawContours(frame, [cnt], -1, bgr_color, 3)
                 x, y, w, h = cv2.boundingRect(cnt)
                 cv2.putText(
                     frame,
@@ -60,6 +65,26 @@ while True:
                     bgr_color,
                     2,
                 )
+
+    # 1. Print to console ONLY when the detected colors change (not constantly)
+    if detected_colors != last_detected_colors:
+        for color in detected_colors - last_detected_colors:
+            print(f"OK {color} detected")
+        last_detected_colors = detected_colors.copy()
+
+    # 2. Show "OK <Color> detected" on the Black Screen window
+    y_offset = 40
+    for color in sorted(detected_colors):
+        cv2.putText(
+            black_screen,
+            f"OK {color} detected",
+            (20, y_offset),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.9,
+            colors[color],
+            2,
+        )
+        y_offset += 40
 
     cv2.imshow("Live Detection", frame)
     cv2.imshow("Black Screen Color View", black_screen)

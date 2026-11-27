@@ -1,6 +1,41 @@
 import cv2
 import numpy as np
-from util import get_limits
+
+
+def get_limits(color):
+    c = np.uint8(((color,),))
+    hsvC = cv2.cvtColor(c, cv2.COLOR_BGR2HSV)
+    hue = int(hsvC.item(0, 0, 0))
+
+    if hue >= 170:
+        return [
+            (
+                np.array((hue - 10, 120, 70), dtype=np.uint8),
+                np.array((179, 255, 255), dtype=np.uint8),
+            ),
+            (
+                np.array((0, 120, 70), dtype=np.uint8),
+                np.array((hue - 170, 255, 255), dtype=np.uint8),
+            ),
+        ]
+    elif hue <= 10:
+        return [
+            (
+                np.array((170 + hue, 120, 70), dtype=np.uint8),
+                np.array((179, 255, 255), dtype=np.uint8),
+            ),
+            (
+                np.array((0, 120, 70), dtype=np.uint8),
+                np.array((hue + 10, 255, 255), dtype=np.uint8),
+            ),
+        ]
+    else:
+        lowerLimit = np.array((hue - 10, 120, 70), dtype=np.uint8)
+        upperLimit = np.array((hue + 10, 255, 255), dtype=np.uint8)
+        return [(lowerLimit, upperLimit)]
+
+
+print("Starting camera...")
 
 colors = {
     "Red": (0, 0, 255),
@@ -14,16 +49,21 @@ kernel = np.ones((5, 5), np.uint8)
 
 cap = cv2.VideoCapture(0)
 if not cap.isOpened():
-    print("ERROR: Could not open webcam. Try changing VideoCapture(0) to 1.")
+    print("Camera 0 failed, trying camera 1...")
+    cap = cv2.VideoCapture(1)
 
-# Tracks what was detected in the previous frame to prevent console spam
+if not cap.isOpened():
+    print("ERROR: Could not open webcam! Check permissions or close other camera apps.")
+    exit()
+
+print("Camera running! Press 'q' on the video window to quit.")
 last_detected_colors = set()
 
 while True:
     ret, frame = cap.read()
     if not ret:
-        print("Failed to grab frame. Retrying...")
-        continue
+        print("Failed to grab frame.")
+        break
 
     blurred = cv2.GaussianBlur(frame, (5, 5), 0)
     hsvImage = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
@@ -66,18 +106,16 @@ while True:
                     2,
                 )
 
-    # 1. Print to console ONLY when the detected colors change (not constantly)
     if detected_colors != last_detected_colors:
         for color in detected_colors - last_detected_colors:
-            print(f"OK {color} detected")
+            print(f"{color} detected")
         last_detected_colors = detected_colors.copy()
 
-    # 2. Show "OK <Color> detected" on the Black Screen window
     y_offset = 40
     for color in sorted(detected_colors):
         cv2.putText(
             black_screen,
-            f"OK {color} detected",
+            f"{color} detected",
             (20, y_offset),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.9,
